@@ -1,6 +1,9 @@
 package models
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -53,6 +56,35 @@ type UserSettings struct {
 
 // JSON is a wrapper for handling JSONB in PostgreSQL
 type JSON map[string]interface{}
+
+// Value implements the driver.Valuer interface
+func (j JSON) Value() (driver.Value, error) {
+	if j == nil {
+		return json.Marshal(map[string]interface{}{})
+	}
+	return json.Marshal(j)
+}
+
+// Scan implements the sql.Scanner interface
+func (j *JSON) Scan(value interface{}) error {
+	if value == nil {
+		*j = JSON{}
+		return nil
+	}
+
+	bytes, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(bytes, &data); err != nil {
+		return err
+	}
+
+	*j = JSON(data)
+	return nil
+}
 
 // AdminSettings stores global admin configuration
 type AdminSettings struct {

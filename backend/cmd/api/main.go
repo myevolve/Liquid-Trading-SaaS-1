@@ -98,14 +98,23 @@ func main() {
 
 	admin.Put("/users/:id/freeze", func(c *fiber.Ctx) error {
 		id := c.Params("id")
-		var active bool
-		if err := c.BodyParser(&fiber.Map{"active": &active}); err != nil {
+		var input struct {
+			Active bool `json:"active"`
+		}
+		if err := c.BodyParser(&input); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid input",
 			})
 		}
 
-		if err := db.Model(&models.User{}).Where("id = ?", id).Update("active", active).Error; err != nil {
+		updates := map[string]interface{}{
+			"active": input.Active,
+		}
+		if input.Active {
+			updates["approved"] = true
+		}
+
+		if err := db.Model(&models.User{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "Failed to update user status",
 			})
@@ -114,8 +123,10 @@ func main() {
 	})
 
 	admin.Put("/settings/auto-approve", func(c *fiber.Ctx) error {
-		var enabled bool
-		if err := c.BodyParser(&fiber.Map{"enabled": &enabled}); err != nil {
+		var input struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := c.BodyParser(&input); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid input",
 			})
@@ -123,17 +134,25 @@ func main() {
 
 		setting := models.AdminSettings{
 			Key:         "auto_approve_users",
-			Value:       models.JSON{"enabled": enabled},
+			Value:       models.JSON{"enabled": input.Enabled},
 			Description: "Automatically approve new user registrations",
 			ModuleName:  "auth",
 		}
 
-		if err := db.Where("key = ?", setting.Key).
-			Assign(setting).
-			FirstOrCreate(&setting).Error; err != nil {
+		result := db.Where("key = ?", setting.Key).FirstOrCreate(&setting)
+		if result.Error != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "Failed to update setting",
 			})
+		}
+
+		// Update the value if the setting already existed
+		if result.RowsAffected == 0 {
+			if err := db.Model(&setting).Where("key = ?", setting.Key).Update("value", setting.Value).Error; err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": "Failed to update setting value",
+				})
+			}
 		}
 
 		return c.JSON(setting)

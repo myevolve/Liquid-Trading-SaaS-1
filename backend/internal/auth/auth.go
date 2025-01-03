@@ -30,8 +30,9 @@ func (h *AuthHandler) RegisterRoutes(router fiber.Router) {
 
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email    string      `json:"email"`
+		Password string      `json:"password"`
+		Role     models.Role `json:"role"`
 	}
 
 	if err := c.BodyParser(&input); err != nil {
@@ -43,16 +44,21 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	user := &models.User{
 		Email:    input.Email,
 		Password: input.Password,
-		Role:     models.RoleUser,
+		Role:     input.Role,
 	}
 
-	// Check if auto-approve is enabled
-	var autoApprove models.AdminSettings
-	result := h.db.Where("key = ?", "auto_approve_users").First(&autoApprove)
-	if result.Error == nil {
-		if enabled, ok := autoApprove.Value["enabled"].(bool); ok && enabled {
-			user.Approved = true
-			user.Active = true
+	// Admin users are automatically approved and active
+	if user.Role == models.RoleAdmin {
+		user.Approved = true
+		user.Active = true
+	} else {
+		// Check if auto-approve is enabled for regular users
+		var autoApprove models.AdminSettings
+		if err := h.db.Where("key = ?", "auto_approve_users").First(&autoApprove).Error; err == nil {
+			if enabled, ok := autoApprove.Value["enabled"].(bool); ok && enabled {
+				user.Approved = true
+				user.Active = true
+			}
 		}
 	}
 
